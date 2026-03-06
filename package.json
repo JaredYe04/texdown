@@ -1,5 +1,5 @@
 {
-  "name": "markdown-tex",
+  "name": "@jared-ye/markdown-tex",
   "version": "0.0.0",
   "description": "Markdown ⇄ LaTeX conversion library with unified AST",
   "author": "JaredYe04",
