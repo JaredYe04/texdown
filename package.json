@@ -1,11 +1,11 @@
 {
-  "name": "mdtex",
+  "name": "markdown-tex",
   "version": "0.0.0",
   "description": "Markdown ⇄ LaTeX conversion library with unified AST",
   "author": "JaredYe04",
   "repository": {
     "type": "git",
-    "url": "https://github.com/JaredYe04/mdtex.git"
+    "url": "https://github.com/JaredYe04/markdown-tex.git"
   },
   "main": "dist/index.js",
   "module": "dist/index.js",
