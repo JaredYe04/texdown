@@ -60,7 +60,7 @@ jobs:
         run: |
           LOCAL_VERSION=$(node -p "require('./package.json').version")
           echo "Local package.json version: $LOCAL_VERSION"
-          NPM_VERSION=$(npm view markdown-tex version 2>/dev/null || echo "")
+          NPM_VERSION=$(npm view @jared-ye/markdown-tex version 2>/dev/null || echo "")
           if [ -z "$NPM_VERSION" ]; then
             BASE_VERSION=$LOCAL_VERSION
           else
@@ -88,7 +88,7 @@ jobs:
           npm version ${{ github.event.inputs.version }} --no-git-tag-version
           NEW_VERSION=$(node -p "require('./package.json').version")
           echo "New version: $NEW_VERSION"
-          if npm view markdown-tex@$NEW_VERSION version > /dev/null 2>&1; then
+          if npm view @jared-ye/markdown-tex@$NEW_VERSION version > /dev/null 2>&1; then
             npm version ${{ github.event.inputs.version }} --no-git-tag-version
             NEW_VERSION=$(node -p "require('./package.json').version")
           fi
@@ -106,7 +106,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "Preparing to publish version: $VERSION"
-          if npm view markdown-tex@$VERSION version > /dev/null 2>&1; then
+          if npm view @jared-ye/markdown-tex@$VERSION version > /dev/null 2>&1; then
             echo "Error: Version $VERSION already exists on npm"
             exit 1
           fi

@@ -10,7 +10,7 @@
 
 > **Markdown ⇄ LaTeX** conversion library with a unified AST. Round-trip safe for headings, paragraphs, lists, code blocks, math, links, images, tables, blockquotes, and inline formatting.
 
-[![npm](https://img.shields.io/npm/v/markdown-tex)](https://www.npmjs.com/package/markdown-tex)
+[![npm](https://img.shields.io/npm/v/@jared-ye/markdown-tex)](https://www.npmjs.com/package/@jared-ye/markdown-tex)
 [![GitHub](https://img.shields.io/badge/GitHub-JaredYe04%2Fmarkdown-tex-blue)](https://github.com/JaredYe04/markdown-tex)
 
 ---
@@ -18,7 +18,7 @@
 ## 🚀 Install
 
 ```bash
-npm install markdown-tex
+npm install @jared-ye/markdown-tex
 ```
 
 ---
@@ -52,7 +52,7 @@ npm install markdown-tex
 ### Basic conversion
 
 ```ts
-import { markdownToLatex, latexToMarkdown } from 'markdown-tex'
+import { markdownToLatex, latexToMarkdown } from '@jared-ye/markdown-tex'
 
 // Markdown → LaTeX body
 const latex = markdownToLatex('# Hello **world**\n\n- item one\n- item two')
@@ -81,7 +81,7 @@ const code = markdownToLatex('```js\nconst x = 1\n```')
 ### Escape for titlepage / headers
 
 ```ts
-import { escapeLatex } from 'markdown-tex'
+import { escapeLatex } from '@jared-ye/markdown-tex'
 
 const title = escapeLatex('Price: 100% & "quoted"')
 // → Price: 100\% \& \"quoted\"
@@ -93,7 +93,7 @@ const title = escapeLatex('Price: 100% & "quoted"')
 ## 🔗 Links
 
 - **Repository:** [github.com/JaredYe04/markdown-tex](https://github.com/JaredYe04/markdown-tex)
-- **npm:** [markdown-tex](https://www.npmjs.com/package/markdown-tex)
+- **npm:** [@jared-ye/markdown-tex](https://www.npmjs.com/package/@jared-ye/markdown-tex)
 
 </details>
 
@@ -104,7 +104,7 @@ const title = escapeLatex('Price: 100% & "quoted"')
 
 > 基于**统一 AST** 的 **Markdown ⇄ LaTeX** 转换库。支持标题、段落、列表、代码块、数学、链接、图片、表格、引用及行内格式的往返转换。
 
-[![npm](https://img.shields.io/npm/v/markdown-tex)](https://www.npmjs.com/package/markdown-tex)
+[![npm](https://img.shields.io/npm/v/@jared-ye/markdown-tex)](https://www.npmjs.com/package/@jared-ye/markdown-tex)
 [![GitHub](https://img.shields.io/badge/GitHub-JaredYe04%2Fmarkdown-tex-blue)](https://github.com/JaredYe04/markdown-tex)
 
 ---
@@ -112,7 +112,7 @@ const title = escapeLatex('Price: 100% & "quoted"')
 ## 🚀 安装
 
 ```bash
-npm install markdown-tex
+npm install @jared-ye/markdown-tex
 ```
 
 ---
@@ -146,7 +146,7 @@ npm install markdown-tex
 ### 基础转换
 
 ```ts
-import { markdownToLatex, latexToMarkdown } from 'markdown-tex'
+import { markdownToLatex, latexToMarkdown } from '@jared-ye/markdown-tex'
 
 // Markdown → LaTeX 正文
 const latex = markdownToLatex('# 你好 **世界**\n\n- 第一项\n- 第二项')
@@ -175,7 +175,7 @@ const code = markdownToLatex('```js\nconst x = 1\n```')
 ### 标题页/页眉转义
 
 ```ts
-import { escapeLatex } from 'markdown-tex'
+import { escapeLatex } from '@jared-ye/markdown-tex'
 
 const title = escapeLatex('价格：100% & “引号”')
 // → 价格：100\% \& \"引号\"
@@ -187,6 +187,6 @@ const title = escapeLatex('价格：100% & “引号”')
 ## 🔗 链接
 
 - **仓库：** [github.com/JaredYe04/markdown-tex](https://github.com/JaredYe04/markdown-tex)
-- **npm：** [markdown-tex](https://www.npmjs.com/package/markdown-tex)
+- **npm：** [@jared-ye/markdown-tex](https://www.npmjs.com/package/@jared-ye/markdown-tex)
 
 </details>
