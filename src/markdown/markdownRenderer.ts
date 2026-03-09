@@ -54,7 +54,8 @@ function renderBlock(node: BlockNode): string {
     return `\`\`\`${lang}\n${node.content}\n\`\`\``
   }
   if (isMathBlockNode(node)) {
-    return `$$\n${node.content}\n$$`
+    // Space after/before $$ for compatibility with common Markdown math extensions (KaTeX, MathJax)
+    return `$$ ${node.content.trim()} $$`
   }
   if (isBlockquoteNode(node)) {
     const inner = node.children.map((b) => renderBlock(b)).join('\n\n')

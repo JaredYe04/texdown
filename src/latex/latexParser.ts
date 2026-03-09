@@ -66,6 +66,9 @@ function stripControlBlocks(body: string): string {
   s = s.replace(/\\vfill\b/g, '')
   // \noindent\rule{...}
   s = s.replace(/\\noindent\s*\\rule\{[^{}]*\}\{[^{}]*\}/g, '')
+  // \bibliographystyle{...}, \bibliography{...}
+  s = s.replace(/\\bibliographystyle\{[^{}]*\}/g, '')
+  s = s.replace(/\\bibliography\{[^{}]*\}/g, '')
   return s
 }
 
@@ -111,8 +114,18 @@ function collapseNewlinesInsideMath(s: string): string {
     if (s[i] === '$' && i + 1 < s.length && s[i + 1] !== '$') {
       out += '$'
       i += 1
-      const end = s.indexOf('$', i)
-      if (end !== -1) {
+      // Find closing $ but skip \$ (escaped literal $) so e.g. $\#$ is kept intact
+      let end = i
+      while (end < s.length) {
+        const next = s.indexOf('$', end)
+        if (next === -1) break
+        if (next > 0 && s[next - 1] !== '\\') {
+          end = next
+          break
+        }
+        end = next + 1
+      }
+      if (end > i && end < s.length) {
         out += s.slice(i, end).replace(/\n+/g, ' ').trim()
         out += '$'
         i = end + 1
@@ -362,8 +375,8 @@ function parseBlocks(source: string): BlockNode[] {
       continue
     }
 
-    // \begin{letter}... and similar: parse inner so \textbf, \item, \subitem convert
-    if (trimmed.match(/^\\begin\{(letter|minipage|frame)\}/)) {
+    // \begin{letter}... \begin{flushleft}... and similar: parse inner so \textbf, \item convert
+    if (trimmed.match(/^\\begin\{(letter|minipage|frame|flushleft)\}/)) {
       const envName = trimmed.match(/^\\begin\{([^}]+)\}/)![1]
       const innerResult = parseGenericEnv(lines, i, envName)
       blocks.push(...parseBlocks(innerResult.inner))
@@ -871,14 +884,17 @@ function parseTableEnv(lines: string[], start: number): { node: TableNode; nextI
   const tabularInner = extractOneTabular(rawBlock)
   if (tabularInner === null) return null
   const skipOnlyRe = /^\s*\\(hline|toprule|midrule|bottomrule)(?:\[[^\]]*\])?\s*$/
+  const stripLeadingRuleRe = /^\s*\\(toprule|midrule|bottomrule)(?:\[[^\]]*\])?\s*/
   const rowStrings = splitTableRowsByBackslash(tabularInner)
   const headerRow: string[] = []
   const rows: string[][] = []
   let firstDataRow = true
   for (const rowStr of rowStrings) {
-    const trimmed = rowStr.trim()
+    let trimmed = rowStr.trim()
     if (!trimmed) continue
     if (skipOnlyRe.test(trimmed)) continue
+    trimmed = trimmed.replace(stripLeadingRuleRe, '').trim()
+    if (!trimmed) continue
     const cells = splitTableRowByAmpersand(trimmed).map((c) => cellContentToMarkdown(c.trim()))
     if (cells.length === 0) continue
     if (firstDataRow) {
@@ -948,13 +964,20 @@ function normalizeTableCellLatex(t: string): string {
 /** Convert LaTeX cell content to markdown: preserve \( ... \), $ ... $, $$ ... $$ as math, strip other commands. */
 function cellContentToMarkdown(cell: string): string {
   let t = cell.replace(/\\hline/g, '')
+  t = t.replace(/\\(toprule|midrule|bottomrule)(?:\[[^\]]*\])?\s*/g, '')
   t = stripTableRowControl(t)
-  // Preserve display math $$ ... $$ first (so single-$ regex does not break it)
-  t = t.replace(/\$\$([\s\S]*?)\$\$/g, (_, math) => '$$' + math.replace(/\n+/g, ' ').trim() + '$$')
+  // Preserve display math $$ ... $$ first (allow optional whitespace; collapse newlines inside)
+  // Run until no change so that nested/split $$ are all normalized (e.g. "$$\nR\n$$" → "$$ R $$")
+  let prev = ''
+  while (prev !== t) {
+    prev = t
+    // Output "$$ x $$" (space after/before $$) so most Markdown math renderers recognize display math
+    t = t.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (_, math) => '$$ ' + math.replace(/\n+/g, ' ').trim() + ' $$')
+  }
   // Preserve inline math: \( ... \) → $ ... $
   t = t.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => '$' + math.trim() + '$')
-  // Preserve $ ... $ (single $) - already markdown math
-  t = t.replace(/\$([^$]+)\$/g, (_, math) => '$' + math.trim() + '$')
+  // Preserve $ ... $ (single $). Use lookaround so we do NOT match $ inside $$ ... $$ (e.g. "$ x $" in "$$ x $$")
+  t = t.replace(/(?<!\$)\$([^$]+)\$(?!\$)/g, (_, math) => '$' + math.trim() + '$')
   // Extract \begin{tabular}...\end{tabular} (column spec can have nested {}) and replace with inner content
   while (/\\begin\{tabular\}/.test(t)) {
     const next = replaceOneTabular(t)
@@ -1148,11 +1171,33 @@ function parseInlineLatex(line: string): InlineNode[] {
       }
     }
 
-    // Inline math $ ... $
+    // Display math $$ ... $$ (must check before single $ so "$$x$$" is not split)
+    if (line.slice(i).startsWith('$$')) {
+      const rest = line.slice(i + 2)
+      const endIdx = rest.indexOf('$$')
+      if (endIdx !== -1) {
+        const content = rest.slice(0, endIdx).replace(/\n+/g, ' ').trim()
+        out.push({ type: 'math_inline', content })
+        i += 2 + endIdx + 2
+        continue
+      }
+    }
+
+    // Inline math $ ... $ (closing $ must not be escaped as \$)
     if (line[i] === '$' && i + 1 < line.length && line[i + 1] !== '$') {
-      const end = line.indexOf('$', i + 1)
-      if (end !== -1) {
-        out.push({ type: 'math_inline', content: line.slice(i + 1, end).trim() })
+      let end = i + 1
+      while (end < line.length) {
+        const next = line.indexOf('$', end)
+        if (next === -1) break
+        if (line[next - 1] !== '\\') {
+          end = next
+          break
+        }
+        end = next + 1
+      }
+      if (end > i + 1 && end < line.length) {
+        const content = line.slice(i + 1, end).trim()
+        out.push({ type: 'math_inline', content })
         i = end + 1
         continue
       }
@@ -1253,6 +1298,20 @@ function parseInlineLatex(line: string): InlineNode[] {
       continue
     }
 
+    // Single \ at end of line (or \ then only whitespace) → line break (some .tex use one backslash)
+    if (line[i] === '\\' && /^\s*$/.test(line.slice(i + 1))) {
+      out.push({ type: 'text', value: '  \n' })
+      i = line.length
+      continue
+    }
+
+    // \hfill (horizontal fill) → space
+    if (line.slice(i).startsWith('\\hfill')) {
+      out.push({ type: 'text', value: ' ' })
+      i += 6
+      continue
+    }
+
     // \qquad, \quad, \, (horizontal space) → space
     if (line.slice(i).startsWith('\\qquad')) {
       out.push({ type: 'text', value: ' ' })
@@ -1330,15 +1389,19 @@ function parseInlineLatex(line: string): InlineNode[] {
       }
     }
 
-    // Plain text: stop at next \command, \(, or \)
+    // Plain text: stop at next \command, \(, \), $, or $$ so math is not consumed and unescaped
     const rest = line.slice(i)
     const nextLetter = rest.search(/\\[a-zA-Z@]+/)
     const nextOpenMath = rest.indexOf('\\(')
     const nextCloseMath = rest.indexOf('\\)')
+    const nextDollar = rest.indexOf('$')
+    const nextDoubleDollar = rest.indexOf('$$')
     let end = line.length
     if (nextLetter !== -1) end = Math.min(end, i + nextLetter)
     if (nextOpenMath !== -1) end = Math.min(end, i + nextOpenMath)
     if (nextCloseMath !== -1) end = Math.min(end, i + nextCloseMath)
+    if (nextDollar !== -1) end = Math.min(end, i + nextDollar)
+    if (nextDoubleDollar !== -1) end = Math.min(end, i + nextDoubleDollar)
     if (end > i) {
       const raw = line.slice(i, end)
       const unescaped = raw.replace(/\\([#%&_{}$])/g, '$1')

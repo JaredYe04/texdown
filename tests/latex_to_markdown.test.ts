@@ -173,4 +173,103 @@ $R$ & Sample correlation & -
     expect(md).toContain('and more')
     expect(md).toMatch(/\$.*\\frac.*\$/);
   })
+
+  it('table header row strips \\toprule[2pt], cells have Symbol not literal', () => {
+    const latex = `\\begin{table}[H]
+\\begin{tabular}{c l c}
+\\toprule[2pt]
+\\multicolumn{1}{m{3cm}}{\\centering Symbol} & \\multicolumn{1}{l}{\\centering Definitions} & \\multicolumn{1}{m{3cm}}{\\centering Unit} \\\\
+\\midrule
+$x$ & Sample matrix & -
+\\end{tabular}
+\\end{table}`
+    const md = latexToMarkdown(latex)
+    expect(md).toContain('Symbol')
+    expect(md).toContain('Definitions')
+    expect(md).toContain('Unit')
+    expect(md).not.toMatch(/\\\\toprule|toprule\[2pt\]/)
+    expect(md).toContain('$x$')
+  })
+
+  it('table cell with display math $$ R $$', () => {
+    const latex = `\\begin{table}[H]
+\\begin{tabular}{c c}
+A & B \\\\
+$$R$$ & Sample correlation \\\\
+\\end{tabular}
+\\end{table}`
+    const md = latexToMarkdown(latex)
+    expect(md).toMatch(/\$\$.*R.*\$\$/)
+    expect(md).toContain('Sample correlation')
+    expect(md).not.toMatch(/KaTeX|parse error/)
+  })
+
+  it('table cell $$x$$ and $$ P $$ not corrupted to $x or $P', () => {
+    const latex = `\\begin{table}[H]
+\\begin{tabular}{c c}
+\\toprule[2pt]
+Symbol & Def \\\\
+\\midrule
+$$x$$ & Sample matrix \\\\
+$$P$$ & Posibility \\\\
+\\end{tabular}
+\\end{table}`
+    const md = latexToMarkdown(latex)
+    expect(md).toMatch(/\$\$[^$]*x[^$]*\$\$/)
+    expect(md).toMatch(/\$\$[^$]*P[^$]*\$\$/)
+    expect(md).not.toMatch(/\|\s*\$\s*x\s*\||\|\s*\$\s*P\s*\|/)
+  })
+
+  it('$\\\\#$ in text outputs backslash so KaTeX can render', () => {
+    const latex = 'Team $\\#$2405186'
+    const md = latexToMarkdown(latex)
+    expect(md).toContain('Team')
+    expect(md).toContain('2405186')
+    expect(md).toMatch(/\\#/)
+  })
+
+  it('\\\\ and comment then \\qquad on next line', () => {
+    const latex = `Task 1\\\\
+%% comment line
+\\qquad We use the weighted assignment method.`
+    const md = latexToMarkdown(latex)
+    expect(md).toContain('Task 1')
+    expect(md).toContain('We use the weighted assignment method')
+    expect(md).not.toMatch(/\\\\\\\\|\\\\qquad|%%/)
+  })
+
+  it('\\begin{flushleft} with \\textbf → converted not literal', () => {
+    const latex = `\\begin{flushleft}
+\\textbf{To: Tennis Coaches}
+\\textbf{From: Team \\# 2405186}
+\\end{flushleft}`
+    const md = latexToMarkdown(latex)
+    expect(md).toContain('To: Tennis Coaches')
+    expect(md).toContain('From: Team # 2405186')
+    expect(md).not.toMatch(/\\\\begin\{flushleft\}|\\\\end\{flushleft\}/)
+  })
+
+  it('\\hfill and $\\#$ in letter', () => {
+    const latex = `\\begin{letter}{Memo}
+\\hfill Yours Sincerely,
+\\hfill Team $\\#$2405186
+\\end{letter}`
+    const md = latexToMarkdown(latex)
+    expect(md).toContain('Yours Sincerely')
+    expect(md).toContain('Team')
+    expect(md).toContain('2405186')
+    expect(md).not.toMatch(/\\\\hfill/)
+    expect(md).toMatch(/\\$\\\\#\\$|#/) // $\#$ or # preserved
+  })
+
+  it('strips \\bibliographystyle and \\bibliography', () => {
+    const latex = `Text.
+\\bibliographystyle{plain}
+\\bibliography{ref.bib}
+More.`
+    const md = latexToMarkdown(latex)
+    expect(md).toContain('Text')
+    expect(md).toContain('More')
+    expect(md).not.toMatch(/\\\\bibliographystyle|\\\\bibliography/)
+  })
 })
