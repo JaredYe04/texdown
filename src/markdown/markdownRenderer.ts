@@ -23,18 +23,26 @@ import {
   isMathInlineNode,
   isStrikethroughNode
 } from '../ast/nodes'
+import type {
+  InlineMacroHandlerResult,
+  LatexToMarkdownOptions
+} from '../latex/latexToMarkdownOptions'
+import {
+  getEffectiveInlineMacroHandlers,
+  parseLatexMacroInvocation
+} from '../latex/latexToMarkdownOptions'
 
-export function renderMarkdown(ast: AST): string {
-  return ast.children.map((b) => renderBlock(b)).filter(Boolean).join('\n\n')
+export function renderMarkdown(ast: AST, options?: LatexToMarkdownOptions): string {
+  return ast.children.map((b) => renderBlock(b, options)).filter(Boolean).join('\n\n')
 }
 
-function renderBlock(node: BlockNode): string {
+function renderBlock(node: BlockNode, options?: LatexToMarkdownOptions): string {
   if (isHeadingNode(node)) {
     const prefix = '#'.repeat(node.level)
-    return `${prefix} ${renderInlineSequence(node.children)}`
+    return `${prefix} ${renderInlineSequence(node.children, options)}`
   }
   if (isParagraphNode(node)) {
-    return renderInlineSequence(node.children)
+    return renderInlineSequence(node.children, options)
   }
   if (isListNode(node)) {
     return node.items
@@ -43,7 +51,7 @@ function renderBlock(node: BlockNode): string {
         const first = item.children[0]
         const text =
           first && first.type === 'paragraph'
-            ? renderInlineSequence((first as { children: InlineNode[] }).children)
+            ? renderInlineSequence((first as { children: InlineNode[] }).children, options)
             : ''
         return `${bullet} ${text}`
       })
@@ -58,7 +66,7 @@ function renderBlock(node: BlockNode): string {
     return `$$ ${node.content.trim()} $$`
   }
   if (isBlockquoteNode(node)) {
-    const inner = node.children.map((b) => renderBlock(b)).join('\n\n')
+    const inner = node.children.map((b) => renderBlock(b, options)).join('\n\n')
     return inner
       .split('\n')
       .map((line) => `> ${line}`)
@@ -79,19 +87,102 @@ function renderBlock(node: BlockNode): string {
   return ''
 }
 
-function renderInlineSequence(nodes: InlineNode[]): string {
-  return nodes.map(renderInline).join('')
+function renderInlineSequence(
+  nodes: InlineNode[],
+  options?: LatexToMarkdownOptions
+): string {
+  return nodes.map((n) => renderInline(n, options)).join('')
 }
 
-function renderInline(node: InlineNode): string {
+function renderInline(node: InlineNode, options?: LatexToMarkdownOptions): string {
+  const handlers = getEffectiveInlineMacroHandlers(options?.inlineMacros)
+
   if (isTextNode(node)) return node.value
-  if (isStrongNode(node)) return `**${renderInlineSequence(node.children)}**`
-  if (isEmphasisNode(node)) return `*${renderInlineSequence(node.children)}*`
-  if (isInlineCodeNode(node)) return `\`${node.value}\``
-  if (isLinkNode(node)) return `[${renderInlineSequence(node.children)}](${node.url})`
-  if (isImageNode(node)) return `![${node.alt || ''}](${node.url})`
+
+  if (isStrongNode(node)) {
+    const inner = renderInlineSequence(node.children, options)
+    const result = handlers['textbf']?.({ raw: `\\textbf{${inner}}`, name: 'textbf', hasStar: false, arg: inner })
+    if (result != null) return renderInlineHandlerResult(result, options)
+    return `**${inner}**`
+  }
+
+  if (isEmphasisNode(node)) {
+    const inner = renderInlineSequence(node.children, options)
+    const result =
+      handlers['emph']?.({ raw: `\\emph{${inner}}`, name: 'emph', hasStar: false, arg: inner }) ??
+      handlers['textit']?.({ raw: `\\textit{${inner}}`, name: 'textit', hasStar: false, arg: inner })
+    if (result != null) return renderInlineHandlerResult(result, options)
+    return `*${inner}*`
+  }
+
+  if (isInlineCodeNode(node)) {
+    const result = handlers['texttt']?.({ raw: `\\texttt{${node.value}}`, name: 'texttt', hasStar: false, arg: node.value })
+    if (result != null) return renderInlineHandlerResult(result, options)
+    return `\`${node.value}\``
+  }
+
+  if (isLinkNode(node)) {
+    const inner = renderInlineSequence(node.children, options)
+    const result = handlers['href']?.({
+      raw: `\\href{${node.url}}{${inner}}`,
+      name: 'href',
+      hasStar: false,
+      arg: node.url,
+      arg2: inner
+    })
+    if (result != null) return renderInlineHandlerResult(result, options)
+    return `[${inner}](${node.url})`
+  }
+
+  if (isImageNode(node)) {
+    const result = handlers['includegraphics']?.({
+      raw: `\\includegraphics${node.alt ? `[${node.alt}]` : ''}{${node.url}}`,
+      name: 'includegraphics',
+      hasStar: false,
+      optionalArg: node.alt,
+      arg: node.url
+    })
+    if (result != null) return renderInlineHandlerResult(result, options)
+    return `![${node.alt || ''}](${node.url})`
+  }
+
   if (isMathInlineNode(node)) return `$${node.content}$`
-  if (isStrikethroughNode(node)) return `~~${renderInlineSequence(node.children)}~~`
-  if (node.type === 'unknown_inline') return node.raw
+
+  if (isStrikethroughNode(node)) {
+    const inner = renderInlineSequence(node.children, options)
+    const result = handlers['sout']?.({ raw: `\\sout{${inner}}`, name: 'sout', hasStar: false, arg: inner })
+    if (result != null) return renderInlineHandlerResult(result, options)
+    return `~~${inner}~~`
+  }
+
+  if (node.type === 'unknown_inline') {
+    const handled = handleUnknownInline(node.raw, options)
+    if (handled !== null) return handled
+    return node.raw
+  }
   return ''
 }
+
+function handleUnknownInline(
+  raw: string,
+  options?: LatexToMarkdownOptions
+): string | null {
+  const handlers = getEffectiveInlineMacroHandlers(options?.inlineMacros)
+  const parsed = parseLatexMacroInvocation(raw)
+  if (!parsed) return null
+  const handler = handlers[parsed.name]
+  if (!handler) return null
+  const result = handler(parsed)
+  return renderInlineHandlerResult(result, options)
+}
+
+function renderInlineHandlerResult(
+  result: InlineMacroHandlerResult,
+  options?: LatexToMarkdownOptions
+): string | null {
+  if (result == null) return null
+  if (typeof result === 'string') return result
+  if (Array.isArray(result)) return renderInlineSequence(result, options)
+  return renderInline(result, options)
+}
+

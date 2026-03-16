@@ -191,6 +191,33 @@ $x$ & Sample matrix & -
     expect(md).toContain('$x$')
   })
 
+  it('standalone \\begin{tabular} without table wrapper → markdown table', () => {
+    const latex = `\\section{表格测试}
+\\begin{tabular}{|l|c|r|}
+\\hline
+左对齐 & 居中 & 右对齐 \\\\
+\\hline
+A & B & C \\\\
+\\hline
+X & Y & Z \\\\
+\\hline
+\\end{tabular}`
+    const md = latexToMarkdown(latex)
+    expect(md).toContain('表格测试')
+    expect(md).toContain('|')
+    expect(md).toContain('左对齐')
+    expect(md).toContain('居中')
+    expect(md).toContain('右对齐')
+    expect(md).toContain('A')
+    expect(md).toContain('B')
+    expect(md).toContain('C')
+    expect(md).toContain('X')
+    expect(md).toContain('Y')
+    expect(md).toContain('Z')
+    expect(md).not.toMatch(/\\\\begin\{tabular\}/)
+    expect(md).not.toMatch(/\\\\end\{tabular\}/)
+  })
+
   it('table cell with display math $$ R $$', () => {
     const latex = `\\begin{table}[H]
 \\begin{tabular}{c c}

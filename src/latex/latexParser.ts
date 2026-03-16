@@ -403,6 +403,16 @@ function parseBlocks(source: string): BlockNode[] {
       }
     }
 
+    // \begin{tabular}...\end{tabular} (standalone, without table wrapper) → emit TableNode
+    if (trimmed.match(/^\\begin\{tabular\}/)) {
+      const tabularResult = parseStandaloneTabularEnv(lines, i)
+      if (tabularResult) {
+        blocks.push(tabularResult.node)
+        i = tabularResult.nextIndex
+        continue
+      }
+    }
+
     // Unknown \begin{xxx} ... \end{xxx}: fallback as raw block (e.g. figure, table, tikz)
     const beginUnknownMatch = trimmed.match(/^\\begin\{([a-zA-Z*]+)\}/)
     if (beginUnknownMatch) {
@@ -872,6 +882,51 @@ function parseLongTableEnv(
 /** Parse \begin{table}...\end{table}: find \begin{tabular}...\end{tabular}, parse rows (split by \\ and &), emit TableNode. */
 function parseTableEnv(lines: string[], start: number): { node: TableNode; nextIndex: number } | null {
   const endTag = '\\end{table}'
+  const blockLines: string[] = []
+  let j = start
+  while (j < lines.length) {
+    blockLines.push(lines[j])
+    if (lines[j].trim().startsWith(endTag)) break
+    j++
+  }
+  if (j >= lines.length) return null
+  const rawBlock = blockLines.join('\n')
+  const tabularInner = extractOneTabular(rawBlock)
+  if (tabularInner === null) return null
+  const skipOnlyRe = /^\s*\\(hline|toprule|midrule|bottomrule)(?:\[[^\]]*\])?\s*$/
+  const stripLeadingRuleRe = /^\s*\\(toprule|midrule|bottomrule)(?:\[[^\]]*\])?\s*/
+  const rowStrings = splitTableRowsByBackslash(tabularInner)
+  const headerRow: string[] = []
+  const rows: string[][] = []
+  let firstDataRow = true
+  for (const rowStr of rowStrings) {
+    let trimmed = rowStr.trim()
+    if (!trimmed) continue
+    if (skipOnlyRe.test(trimmed)) continue
+    trimmed = trimmed.replace(stripLeadingRuleRe, '').trim()
+    if (!trimmed) continue
+    const cells = splitTableRowByAmpersand(trimmed).map((c) => cellContentToMarkdown(c.trim()))
+    if (cells.length === 0) continue
+    if (firstDataRow) {
+      headerRow.length = 0
+      headerRow.push(...cells)
+      firstDataRow = false
+    } else {
+      rows.push(cells)
+    }
+  }
+  return {
+    node: { type: 'table', headerRow: headerRow.length ? headerRow : [''], rows },
+    nextIndex: j + 1
+  }
+}
+
+/** Parse standalone \begin{tabular}...\end{tabular} (no table wrapper): parse rows, emit TableNode. */
+function parseStandaloneTabularEnv(
+  lines: string[],
+  start: number
+): { node: TableNode; nextIndex: number } | null {
+  const endTag = '\\end{tabular}'
   const blockLines: string[] = []
   let j = start
   while (j < lines.length) {

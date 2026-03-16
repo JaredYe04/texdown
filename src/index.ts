@@ -9,9 +9,20 @@ import { parseLatex } from './latex/latexParser'
 import { renderLatex, escapeLatex } from './latex/latexRenderer'
 import { normalizeAST } from './transform/normalize'
 import type { AST } from './ast/nodes'
+import type { LatexToMarkdownOptions } from './latex/latexToMarkdownOptions'
 
 export type { AST } from './ast/nodes'
 export type { BlockNode, InlineNode } from './ast/nodes'
+export type {
+  LatexToMarkdownOptions,
+  ParsedLatexMacro,
+  InlineMacroHandler,
+  InlineMacroHandlerResult
+} from './latex/latexToMarkdownOptions'
+export {
+  builtInInlineMacroHandlers,
+  getEffectiveInlineMacroHandlers
+} from './latex/latexToMarkdownOptions'
 
 /** Markdown string → LaTeX body string (no document wrapper) */
 export function markdownToLatex(markdown: string): string {
@@ -19,10 +30,13 @@ export function markdownToLatex(markdown: string): string {
   return renderLatex(ast)
 }
 
-/** LaTeX body string → Markdown string */
-export function latexToMarkdown(latex: string): string {
+/**
+ * LaTeX body string → Markdown string
+ * Supports optional configuration for custom LaTeX macro handling.
+ */
+export function latexToMarkdown(latex: string, options?: LatexToMarkdownOptions): string {
   const ast = parseLatex(latex)
-  return renderMarkdown(ast)
+  return renderMarkdown(ast, options)
 }
 
 /** Markdown string → AST */

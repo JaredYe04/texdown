@@ -37,13 +37,14 @@ npm install @jared-ye/markdown-tex
 | Method | Description |
 |--------|-------------|
 | `markdownToLatex(md)` | Markdown string → LaTeX **body** (no `\documentclass`) |
-| `latexToMarkdown(latex)` | LaTeX body → Markdown string |
+| `latexToMarkdown(latex, options?)` | LaTeX body → Markdown string (with optional custom macro handling) |
 | `markdownToAST(md)` | Markdown → unified AST |
 | `latexToAST(latex)` | LaTeX → unified AST |
 | `normalizeAST(ast)` | Normalize AST for round-trip comparison |
 | `escapeLatex(str)` | Escape `# $ % & _ { }` etc. for preamble/titlepage |
 
-**Types:** `AST`, `BlockNode`, `InlineNode` (exported for TypeScript).
+**Types:** `AST`, `BlockNode`, `InlineNode`, `LatexToMarkdownOptions`, `ParsedLatexMacro`, `InlineMacroHandler` (exported for TypeScript).  
+**Advanced:** `builtInInlineMacroHandlers`, `getEffectiveInlineMacroHandlers` for extending defaults.
 
 ---
 
@@ -86,6 +87,38 @@ import { escapeLatex } from '@jared-ye/markdown-tex'
 const title = escapeLatex('Price: 100% & "quoted"')
 // → Price: 100\% \& \"quoted\"
 // Use in \title{}, \lhead{}, etc.
+```
+
+### Custom LaTeX macro handling (latex → markdown)
+
+`latexToMarkdown` accepts `inlineMacros` to handle custom macros and to **override built-in handlers**. Built-in macros: `textbf`, `textit`, `emph`, `texttt`, `sout`, `href`, `includegraphics`, `ref`, `cite`.
+
+```ts
+import {
+  latexToMarkdown,
+  type LatexToMarkdownOptions,
+  type ParsedLatexMacro
+} from '@jared-ye/markdown-tex'
+
+const options: LatexToMarkdownOptions = {
+  inlineMacros: {
+    // Custom macro: \mybold{X} → **X**
+    mybold: (macro: ParsedLatexMacro) => {
+      return macro.arg ? `**${macro.arg}**` : macro.raw
+    },
+    // Override built-in: \textbf{X} → <strong>X</strong>
+    textbf: (macro) => `<strong>${macro.arg ?? ''}</strong>`,
+    // \badge[green]{Done} → [Done]{.badge .green}
+    badge: (macro) => {
+      const label = macro.arg ?? ''
+      const color = macro.optionalArg ?? 'default'
+      return `[${label}]{.badge .${color}}`
+    }
+  }
+}
+
+latexToMarkdown('\\textbf{bold} and \\mybold{Hello}', options)
+// → <strong>bold</strong> and **Hello**
 ```
 
 ---
@@ -131,13 +164,14 @@ npm install @jared-ye/markdown-tex
 | 方法 | 说明 |
 |------|------|
 | `markdownToLatex(md)` | Markdown 字符串 → LaTeX **正文**（无 `\documentclass`） |
-| `latexToMarkdown(latex)` | LaTeX 正文 → Markdown 字符串 |
+| `latexToMarkdown(latex, options?)` | LaTeX 正文 → Markdown 字符串（可选自定义宏处理配置） |
 | `markdownToAST(md)` | Markdown → 统一 AST |
 | `latexToAST(latex)` | LaTeX → 统一 AST |
 | `normalizeAST(ast)` | 规范化 AST，用于往返比较 |
 | `escapeLatex(str)` | 转义 `# $ % & _ { }` 等，用于前言/标题页 |
 
-**类型：** `AST`、`BlockNode`、`InlineNode`（TypeScript 导出）。
+**类型：** `AST`、`BlockNode`、`InlineNode`、`LatexToMarkdownOptions`、`ParsedLatexMacro`、`InlineMacroHandler`（TypeScript 导出）。  
+**进阶：** `builtInInlineMacroHandlers`、`getEffectiveInlineMacroHandlers` 用于扩展默认行为。
 
 ---
 
@@ -180,6 +214,38 @@ import { escapeLatex } from '@jared-ye/markdown-tex'
 const title = escapeLatex('价格：100% & “引号”')
 // → 价格：100\% \& \"引号\"
 // 用于 \title{}、\lhead{} 等
+```
+
+### LaTeX 自定义宏处理（latex → markdown）
+
+`latexToMarkdown` 支持 `inlineMacros` 处理自定义宏，并可**覆盖内置宏**。内置宏包括：`textbf`、`textit`、`emph`、`texttt`、`sout`、`href`、`includegraphics`、`ref`、`cite`。
+
+```ts
+import {
+  latexToMarkdown,
+  type LatexToMarkdownOptions,
+  type ParsedLatexMacro
+} from '@jared-ye/markdown-tex'
+
+const options: LatexToMarkdownOptions = {
+  inlineMacros: {
+    // 自定义宏：\mybold{内容} → **内容**
+    mybold: (macro: ParsedLatexMacro) => {
+      return macro.arg ? `**${macro.arg}**` : macro.raw
+    },
+    // 覆盖内置：\textbf{内容} → <strong>内容</strong>
+    textbf: (macro) => `<strong>${macro.arg ?? ''}</strong>`,
+    // \badge[success]{已完成} → [已完成]{.badge .success}
+    badge: (macro) => {
+      const label = macro.arg ?? ''
+      const color = macro.optionalArg ?? 'default'
+      return `[${label}]{.badge .${color}}`
+    }
+  }
+}
+
+latexToMarkdown('\\textbf{加粗} 与 \\mybold{你好}', options)
+// → <strong>加粗</strong> 与 **你好**
 ```
 
 ---
