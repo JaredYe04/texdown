@@ -28,7 +28,7 @@ export interface LatexToMarkdownOptions {
   /**
    * 自定义行内宏处理器映射。
    * key 为宏名（不带 `\`），例如 `mybold` 对应 `\mybold{...}`。
-   * 用户提供的处理器会覆盖内置处理器（textbf, textit, emph, texttt, sout, href, includegraphics, ref, cite）。
+   * 用户提供的处理器会覆盖内置处理器（textbf, textit, emph, texttt, sout, href, includegraphics, ref, eqref, cite）。
    */
   inlineMacros?: Record<string, InlineMacroHandler>
 }
@@ -45,6 +45,7 @@ export const builtInInlineMacroHandlers: Record<string, InlineMacroHandler> = {
   includegraphics: (m) =>
     m.arg != null ? `![${m.optionalArg ?? ''}](${m.arg})` : m.raw,
   ref: (m) => (m.arg != null ? `[${m.arg}]` : '[ref]'),
+  eqref: (m) => (m.arg != null ? `[${m.arg}]` : '[ref]'),
   cite: (m) =>
     m.arg != null ? `[${m.arg}](#ref-${m.arg})` : '[ref]'
 }

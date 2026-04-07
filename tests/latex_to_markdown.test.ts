@@ -96,6 +96,12 @@ describe('LaTeX → Markdown', () => {
     expect(md).toContain('2. y')
   })
 
+  it('\\eqref{eq:x} → [eq:x]', () => {
+    const md = latexToMarkdown(String.raw`\eqref{eq:x} and \ref{eq:x}`)
+    expect(md).toContain('[eq:x]')
+    expect(md).not.toContain('\\eqref')
+  })
+
   it('\\hrulefill → ---', () => {
     expect(latexToMarkdown('\\hrulefill')).toContain('---')
   })

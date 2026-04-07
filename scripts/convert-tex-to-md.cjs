@@ -1,5 +1,6 @@
 /**
- * Convert all .tex files in tests/fixtures/tex to Markdown and write to tests/fixtures/tex-to-md.
+ * Convert all .tex files under tests/fixtures/tex (recursively) to Markdown under tests/fixtures/tex-to-md,
+ * preserving subdirectory structure.
  * Run: npm run convert-tex  (builds first, then converts)
  * Or:  node scripts/convert-tex-to-md.cjs  (after npm run build)
  */
@@ -11,16 +12,41 @@ const repoRoot = path.join(__dirname, '..')
 const inputDir = path.join(repoRoot, 'tests', 'fixtures', 'tex')
 const outputDir = path.join(repoRoot, 'tests', 'fixtures', 'tex-to-md')
 
+/** Collect paths relative to `root` for every `.tex` file under `root`. */
+function collectTexFilesRelative(root) {
+  const results = []
+  function walk(currentAbs, relFromRoot) {
+    let entries
+    try {
+      entries = fs.readdirSync(currentAbs, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const ent of entries) {
+      const name = ent.name
+      const rel = relFromRoot ? path.join(relFromRoot, name) : name
+      const full = path.join(currentAbs, name)
+      if (ent.isDirectory()) {
+        walk(full, rel)
+      } else if (ent.isFile() && name.endsWith('.tex')) {
+        results.push(rel)
+      }
+    }
+  }
+  walk(root, '')
+  return results
+}
+
 function main() {
   if (!fs.existsSync(inputDir)) {
     fs.mkdirSync(inputDir, { recursive: true })
     const readme = `# LaTeX test files
 
-Put your .tex files here, then run:
+Put your .tex files here (nested subfolders are OK), then run:
 
   npm run convert-tex
 
-Converted Markdown will be written to tests/fixtures/tex-to-md/ with the same base name (.md).
+Converted Markdown will be written to tests/fixtures/tex-to-md/ mirroring this folder tree (.md per .tex).
 `
     fs.writeFileSync(path.join(inputDir, 'README.md'), readme, 'utf8')
     console.log('Created', inputDir)
@@ -36,9 +62,10 @@ Converted Markdown will be written to tests/fixtures/tex-to-md/ with the same ba
     console.error(e.message)
     process.exit(1)
   }
-  const files = fs.readdirSync(inputDir).filter((f) => f.endsWith('.tex'))
-  if (files.length === 0) {
-    console.log('No .tex files in tests/fixtures/tex. Add some and run again.')
+
+  const relPaths = collectTexFilesRelative(inputDir)
+  if (relPaths.length === 0) {
+    console.log('No .tex files under tests/fixtures/tex. Add some and run again.')
     return
   }
 
@@ -46,14 +73,15 @@ Converted Markdown will be written to tests/fixtures/tex-to-md/ with the same ba
     fs.mkdirSync(outputDir, { recursive: true })
   }
 
-  for (const f of files) {
-    const inputPath = path.join(inputDir, f)
+  for (const rel of relPaths) {
+    const inputPath = path.join(inputDir, rel)
     const tex = fs.readFileSync(inputPath, 'utf8')
     const md = latexToMarkdown(tex)
-    const base = path.basename(f, '.tex')
-    const outPath = path.join(outputDir, base + '.md')
+    const outRel = rel.replace(/\.tex$/i, '.md')
+    const outPath = path.join(outputDir, outRel)
+    fs.mkdirSync(path.dirname(outPath), { recursive: true })
     fs.writeFileSync(outPath, md, 'utf8')
-    console.log('Converted', f, '->', path.relative(repoRoot, outPath))
+    console.log('Converted', path.relative(repoRoot, inputPath), '->', path.relative(repoRoot, outPath))
   }
   console.log('Done. Output folder:', path.relative(repoRoot, outputDir))
 }

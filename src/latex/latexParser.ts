@@ -1,7 +1,8 @@
 /**
  * LaTeX → MetaDoc AST parser.
  * Parses document body (between \begin{document} and \end{document} if present).
- * Supports: \section, \subsection, \subsubsection, \textbf, \textit, \texttt,
+ * Supports: \section, \subsection, \subsubsection, \chapter, \textbf, \textit, \texttt,
+ * \eqref, \thanks, IEEEkeywords / paracol / flushright, \twocolumn[...] unwrap, etc.
  * \begin{itemize}, \begin{enumerate}, \begin{verbatim}, \href{}{}, \includegraphics{},
  * \[ ... \], and treats unknown commands as unknown nodes (no crash).
  */
@@ -69,6 +70,33 @@ function stripControlBlocks(body: string): string {
   // \bibliographystyle{...}, \bibliography{...}
   s = s.replace(/\\bibliographystyle\{[^{}]*\}/g, '')
   s = s.replace(/\\bibliography\{[^{}]*\}/g, '')
+  // Standalone vertical space on its own line
+  s = s.replace(/^\s*\\vspace\*?\{[^}]*\}\s*$/gm, '')
+  // Layout-only length / column settings (often in paracol resumes)
+  s = s.replace(/\\setlength\{[^}]*\}\{[^}]*\}/g, '')
+  s = s.replace(/\\columnratio\{[^}]*\}/g, '')
+  return s
+}
+
+/** Unwrap `\twocolumn[ ... ]` so title/abstract inside the optional argument become normal body text. */
+function stripTwocolumnOptional(body: string): string {
+  const marker = '\\twocolumn['
+  let s = body
+  let idx = 0
+  while ((idx = s.indexOf(marker, idx)) !== -1) {
+    let depth = 1
+    let j = idx + marker.length
+    while (j < s.length && depth > 0) {
+      const c = s[j]
+      if (c === '[') depth++
+      else if (c === ']') depth--
+      j++
+    }
+    if (depth !== 0) break
+    const inner = s.slice(idx + marker.length, j - 1)
+    s = s.slice(0, idx) + '\n' + inner.trim() + '\n' + s.slice(j)
+    idx = idx + inner.length + 2
+  }
   return s
 }
 
@@ -87,7 +115,8 @@ export function sanitizeLatexBody(latex: string): string {
     body = normalized.trim()
   }
   const stripped = stripControlBlocks(body)
-  const noComments = stripLineComments(stripped)
+  const twocolumnStripped = stripTwocolumnOptional(stripped)
+  const noComments = stripLineComments(twocolumnStripped)
   const collapsedMath = collapseNewlinesInsideMath(noComments)
   return collapsedMath.replace(/\n{3,}/g, '\n\n').trim()
 }
@@ -167,6 +196,51 @@ function extractBraced(s: string, start: number): { content: string; end: number
     i++
   }
   return null
+}
+
+/** Balanced `{...}` starting at `openBraceCol` on `lines[startLine]`, spanning multiple lines (e.g. `\author{...}`). */
+function extractBracedAcrossLines(
+  lines: string[],
+  startLine: number,
+  openBraceCol: number
+): { content: string; endLineIndex: number } | null {
+  const first = lines[startLine]
+  if (!first || first[openBraceCol] !== '{') return null
+  let depth = 1
+  let li = startLine
+  let k = openBraceCol + 1
+  const chunks: string[] = []
+  while (li < lines.length && depth > 0) {
+    const s = lines[li]
+    while (k < s.length && depth > 0) {
+      if (s[k] === '\\' && k + 1 < s.length) {
+        chunks.push(s[k], s[k + 1])
+        k += 2
+        continue
+      }
+      if (s[k] === '{') {
+        depth++
+        if (depth > 1) chunks.push('{')
+        k++
+        continue
+      }
+      if (s[k] === '}') {
+        depth--
+        if (depth > 0) chunks.push('}')
+        k++
+        continue
+      }
+      chunks.push(s[k])
+      k++
+    }
+    if (depth > 0) {
+      chunks.push('\n')
+      li++
+      k = 0
+    }
+  }
+  if (depth !== 0) return null
+  return { content: chunks.join(''), endLineIndex: li }
 }
 
 /** Check if a trimmed line looks like a markdown table row (| ... |) */
@@ -400,12 +474,36 @@ function parseBlocks(source: string): BlockNode[] {
       continue
     }
 
-    // \begin{letter}... \begin{flushleft}... and similar: parse inner so \textbf, \item convert
-    if (trimmed.match(/^\\begin\{(letter|minipage|frame|flushleft)\}/)) {
+    // \begin{letter}... \begin{flushleft|flushright|minipage}...: parse inner
+    if (trimmed.match(/^\\begin\{(letter|minipage|frame|flushleft|flushright)\}/)) {
       const envName = trimmed.match(/^\\begin\{([^}]+)\}/)![1]
       const innerResult = parseGenericEnv(lines, i, envName)
       blocks.push(...parseBlocks(innerResult.inner))
       i = innerResult.nextIndex
+      continue
+    }
+
+    // \begin{IEEEkeywords}...\end{IEEEkeywords}
+    if (trimmed.startsWith('\\begin{IEEEkeywords}')) {
+      const innerResult = parseGenericEnv(lines, i, 'IEEEkeywords')
+      blocks.push({
+        type: 'heading',
+        level: 2,
+        children: [{ type: 'text', value: 'Keywords' }]
+      })
+      const kw = innerResult.inner.replace(/\s+/g, ' ').trim()
+      if (kw) {
+        blocks.push({ type: 'paragraph', children: parseInlineLatex(kw) })
+      }
+      i = innerResult.nextIndex
+      continue
+    }
+
+    // \begin{paracol}{n}...\end{paracol} — split at \switchcolumn / \columnbreak
+    if (trimmed.match(/^\\begin\{paracol\}/)) {
+      const pcResult = parseParacolEnv(lines, i)
+      blocks.push(...pcResult.blocks)
+      i = pcResult.nextIndex
       continue
     }
 
@@ -462,6 +560,20 @@ function parseBlocks(source: string): BlockNode[] {
       continue
     }
 
+    // \appendix
+    if (trimmed === '\\appendix') {
+      blocks.push({ type: 'heading', level: 2, children: [{ type: 'text', value: 'Appendix' }] })
+      i++
+      continue
+    }
+
+    // Horizontal rule as section divider (resume templates)
+    if (/^\\noindent\s*\\rule\{[^}]*\}\{[^}]*\}\s*$/.test(trimmed)) {
+      blocks.push({ type: 'thematic_break' })
+      i++
+      continue
+    }
+
     // \title{...} → level-1 heading
     const titleMatch = trimmed.match(/^\\title\s*\{/)
     if (titleMatch) {
@@ -476,17 +588,26 @@ function parseBlocks(source: string): BlockNode[] {
       continue
     }
 
-    // \author{...} → paragraph
+    // \author{...} → paragraph (may span multiple lines, e.g. IEEEtran)
     const authorMatch = trimmed.match(/^\\author\s*\{/)
     if (authorMatch) {
-      const braced = extractBraced(trimmed, trimmed.indexOf('{'))
-      if (braced) {
-        const children = parseInlineLatex(braced.content)
-        blocks.push({ type: 'paragraph', children })
+      const openIdx = trimmed.indexOf('{')
+      const single = extractBraced(trimmed, openIdx)
+      if (single && single.end <= trimmed.length) {
+        const collapsed = single.content.replace(/\s*\n\s*/g, ' ').trim()
+        blocks.push({ type: 'paragraph', children: parseInlineLatex(collapsed) })
+        i++
       } else {
-        blocks.push({ type: 'unknown', raw: line })
+        const ext = extractBracedAcrossLines(lines, i, openIdx)
+        if (ext) {
+          const collapsed = ext.content.replace(/\s*\n\s*/g, ' ').trim()
+          blocks.push({ type: 'paragraph', children: parseInlineLatex(collapsed) })
+          i = ext.endLineIndex + 1
+        } else {
+          blocks.push({ type: 'unknown', raw: line })
+          i++
+        }
       }
-      i++
       continue
     }
 
@@ -699,6 +820,20 @@ function parseGenericEnv(lines: string[], start: number, envName: string): { inn
   return { inner: innerLines.join('\n'), nextIndex: i }
 }
 
+/** paracol: treat columns separated by \switchcolumn or \columnbreak */
+function parseParacolEnv(lines: string[], start: number): { blocks: BlockNode[]; nextIndex: number } {
+  const innerResult = parseGenericEnv(lines, start, 'paracol')
+  let body = innerResult.inner.replace(/\\columnbreak\b/g, '\\switchcolumn')
+  const parts = body.split(/\\switchcolumn\b/)
+  const blocks: BlockNode[] = []
+  for (let p = 0; p < parts.length; p++) {
+    if (p > 0) blocks.push({ type: 'thematic_break' })
+    const chunk = parts[p].trim()
+    if (chunk) blocks.push(...parseBlocks(chunk))
+  }
+  return { blocks, nextIndex: innerResult.nextIndex }
+}
+
 /** Parse thebibliography: emit ## References and for each \bibitem{key} a paragraph with anchor and [key] prefix. */
 function parseTheBibliographyEnv(lines: string[], start: number): { blocks: BlockNode[]; nextIndex: number } {
   const endTag = '\\end{thebibliography}'
@@ -853,21 +988,10 @@ function parseFigureEnv(
   return { blocks, nextIndex: i }
 }
 
-/** \begin{center}...\end{center}: extract all \includegraphics{path} and emit image paragraphs (no caption). */
+/** \begin{center}...\end{center}: parse inner (text, links, images). */
 function parseCenterEnv(lines: string[], start: number): { blocks: BlockNode[]; nextIndex: number } {
   const innerResult = parseGenericEnv(lines, start, 'center')
-  const inner = innerResult.inner
-  const blocks: BlockNode[] = []
-  const incRe = /\\includegraphics(?:\[[^\]]*\])?\{([^{}]+)\}/g
-  let m: RegExpExecArray | null
-  while ((m = incRe.exec(inner)) !== null) {
-    const url = m[1].trim()
-    blocks.push({
-      type: 'paragraph',
-      children: [{ type: 'image', url, alt: undefined }]
-    })
-  }
-  return { blocks, nextIndex: innerResult.nextIndex }
+  return { blocks: parseBlocks(innerResult.inner), nextIndex: innerResult.nextIndex }
 }
 
 /** Parse longtable/longtblr: collect rows (lines with &), skip \hline \toprule etc., build TableNode */
@@ -1342,6 +1466,18 @@ function parseInlineLatex(line: string): InlineNode[] {
       }
     }
 
+    // \textsuperscript{...} → HTML sup (common in IEEE templates)
+    if (line.slice(i).startsWith('\\textsuperscript{')) {
+      const open = line.indexOf('{', i)
+      const content = extractBraced(line, open)
+      if (content) {
+        const supText = stripLatexForPlainText(content.content)
+        out.push({ type: 'text', value: '<sup>' + supText + '</sup>' })
+        i = content.end
+        continue
+      }
+    }
+
     // \texttt{...} — parse inner so \textbackslash etc. resolve; then collapse to literal string
     if (line.slice(i).startsWith('\\texttt{')) {
       const open = line.indexOf('{', i)
@@ -1406,10 +1542,22 @@ function parseInlineLatex(line: string): InlineNode[] {
       continue
     }
 
-    // \\ (line break in LaTeX) → Markdown line break (two spaces + newline)
+    // \rule[..]{w}{h} — box/line placeholder (no bitmap)
+    const ruleMatch = line.slice(i).match(/^\\rule(?:\[[^\]]*\])?\{[^}]*\}\{[^}]*\}/)
+    if (ruleMatch) {
+      i += ruleMatch[0].length
+      continue
+    }
+
+    // \\ optional [dimen] e.g. \\[0.25em]
     if (line.slice(i).startsWith('\\\\')) {
+      let len = 2
+      if (line[i + 2] === '[') {
+        const close = line.indexOf(']', i + 2)
+        if (close !== -1) len = close - i + 1
+      }
       out.push({ type: 'text', value: '  \n' })
-      i += 2
+      i += len
       continue
     }
 
@@ -1444,6 +1592,33 @@ function parseInlineLatex(line: string): InlineNode[] {
       continue
     }
 
+    // Font size (layout only)
+    const fsz = line
+      .slice(i)
+      .match(/^\\(tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)\b/)
+    if (fsz) {
+      i += fsz[0].length
+      continue
+    }
+
+    // Unwrap `{ \LARGE ... }`, `{ \color{gray} ... }` (resume / title lines)
+    if (line[i] === '{') {
+      const braced = extractBraced(line, i)
+      if (braced) {
+        const inner0 = braced.content.trimStart()
+        let t = inner0.replace(
+          /^(\\(tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)\b\s*)+/,
+          ''
+        )
+        t = t.replace(/^\\color\{[^}]*\}\s*/, '')
+        if (t !== inner0) {
+          out.push(...parseInlineLatex(t))
+          i = braced.end
+          continue
+        }
+      }
+    }
+
     // Skip known control commands (no visible output)
     if (/^\\(noindent|centering|raggedright|raggedleft|smallskip|bigskip|newline)\b/.test(line.slice(i))) {
       const skip = line.slice(i).match(/^\\[a-zA-Z]+\*?(\[[^\]]*\])?/)?.[0]?.length ?? 0
@@ -1459,6 +1634,47 @@ function parseInlineLatex(line: string): InlineNode[] {
       if (/[#%&_{}$]/.test(next)) {
         out.push({ type: 'text', value: next })
         i += 2
+        continue
+      }
+    }
+
+    // \LaTeX / \TeX logos
+    if (line.slice(i).startsWith('\\LaTeX')) {
+      out.push({ type: 'text', value: 'LaTeX' })
+      i += 6
+      continue
+    }
+    if (line.slice(i).startsWith('\\TeX')) {
+      const rest = line.slice(i + 4)
+      if (rest.length === 0 || !/[a-zA-Z]/.test(rest[0])) {
+        out.push({ type: 'text', value: 'TeX' })
+        i += 4
+        continue
+      }
+    }
+
+    // Italic correction + period (common after \LaTeX)
+    if (line.slice(i).startsWith('\\.')) {
+      out.push({ type: 'text', value: '.' })
+      i += 2
+      continue
+    }
+
+    // Explicit space \  or \~ (NBSP shortcut in some templates)
+    if (line.slice(i).startsWith('\\ ') || line.slice(i).startsWith('\\~')) {
+      out.push({ type: 'text', value: ' ' })
+      i += 2
+      continue
+    }
+
+    // \eqref{label} → same visible form as \ref
+    if (line.slice(i).startsWith('\\eqref{')) {
+      const open = line.indexOf('{', i)
+      const braced = extractBraced(line, open)
+      if (braced) {
+        const label = braced.content.trim()
+        out.push({ type: 'text', value: '[' + label + ']' })
+        i = braced.end
         continue
       }
     }
@@ -1485,6 +1701,34 @@ function parseInlineLatex(line: string): InlineNode[] {
         i = braced.end
         continue
       }
+    }
+
+    // \thanks{...} (title footnote / grant notice)
+    if (line.slice(i).startsWith('\\thanks{')) {
+      const open = line.indexOf('{', i)
+      const braced = extractBraced(line, open)
+      if (braced) {
+        const t = stripLatexForPlainText(braced.content)
+        out.push({ type: 'text', value: '（' + t + '）' })
+        i = braced.end
+        continue
+      }
+    }
+
+    // IEEEtran author blocks
+    if (line.slice(i).startsWith('\\IEEEauthorblockN{') || line.slice(i).startsWith('\\IEEEauthorblockA{')) {
+      const open = line.indexOf('{', i)
+      const content = extractBraced(line, open)
+      if (content) {
+        out.push(...parseInlineLatex(content.content))
+        i = content.end
+        continue
+      }
+    }
+    if (line.slice(i).startsWith('\\and')) {
+      out.push({ type: 'text', value: '\n\n' })
+      i += 4
+      continue
     }
 
     // \cite{...} → link to #ref-{key} with text key (markdown adds [...] around link text)
@@ -1525,9 +1769,11 @@ function parseInlineLatex(line: string): InlineNode[] {
     const nextDollar = rest.indexOf('$')
     const nextDoubleDollar = rest.indexOf('$$')
     const nextTilde = rest.indexOf('~')
+    const nextDblBackslash = rest.indexOf('\\\\')
     let end = line.length
     if (nextLetter !== -1) end = Math.min(end, i + nextLetter)
     if (nextTilde !== -1) end = Math.min(end, i + nextTilde)
+    if (nextDblBackslash !== -1) end = Math.min(end, i + nextDblBackslash)
     if (nextOpenMath !== -1) end = Math.min(end, i + nextOpenMath)
     if (nextCloseMath !== -1) end = Math.min(end, i + nextCloseMath)
     if (nextDollar !== -1) end = Math.min(end, i + nextDollar)
