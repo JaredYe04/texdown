@@ -134,11 +134,11 @@ describe('Complicated LaTeX → Markdown (complicated-tex-test.tex)', () => {
     expect(withRows).toBe(true)
   })
 
-  it('\\ref{} replaced with placeholder, not raw', () => {
+  it('\\ref{} replaced with label text in brackets, not raw', () => {
     if (skip || !latex) return
     const md = latexToMarkdown(latex)
     expect(md).not.toContain('\\ref{tb:notation}')
-    expect(md).toContain('[ref]')
+    expect(md).toMatch(/tb:notation/)
   })
 
   it('bold without broken spacing (no ** word **)', () => {

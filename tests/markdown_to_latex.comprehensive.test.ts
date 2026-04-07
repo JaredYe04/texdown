@@ -17,8 +17,12 @@ describe('Markdown → LaTeX (comprehensive)', () => {
     it('H3 → \\subsubsection{}', () => {
       expect(markdownToLatex('### C')).toBe('\\subsubsection{C}')
     })
-    it('H4+ treated as H3', () => {
-      expect(markdownToLatex('#### D')).toContain('\\subsubsection')
+    it('H4 → \\paragraph{}', () => {
+      expect(markdownToLatex('#### D')).toBe('\\paragraph{D}')
+    })
+    it('H5–H6 → \\subparagraph{}', () => {
+      expect(markdownToLatex('##### E')).toBe('\\subparagraph{E}')
+      expect(markdownToLatex('###### F')).toBe('\\subparagraph{F}')
     })
     it('heading with only spaces after #', () => {
       const out = markdownToLatex('#   ')

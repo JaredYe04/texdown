@@ -25,10 +25,13 @@ import {
   isStrikethroughNode
 } from '../ast/nodes'
 
-const SECTION_CMD: Record<1 | 2 | 3, string> = {
+const SECTION_CMD: Record<1 | 2 | 3 | 4 | 5 | 6, string> = {
   1: 'section',
   2: 'subsection',
-  3: 'subsubsection'
+  3: 'subsubsection',
+  4: 'paragraph',
+  5: 'subparagraph',
+  6: 'subparagraph'
 }
 
 /** Escape LaTeX special characters in plain text */
@@ -68,7 +71,7 @@ export function renderLatex(ast: AST): string {
 
 function renderBlock(node: BlockNode): string {
   if (isHeadingNode(node)) {
-    const cmd = SECTION_CMD[node.level] ?? 'section'
+    const cmd = SECTION_CMD[node.level] ?? 'subsubsection'
     return `\\${cmd}{${renderInlineSequenceLatex(node.children)}}`
   }
   if (isParagraphNode(node)) {

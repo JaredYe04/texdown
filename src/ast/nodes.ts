@@ -12,7 +12,7 @@ export interface DocumentNode {
 
 export interface HeadingNode {
   type: 'heading'
-  level: 1 | 2 | 3
+  level: 1 | 2 | 3 | 4 | 5 | 6
   children: InlineNode[]
 }
 

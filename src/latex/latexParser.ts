@@ -210,10 +210,28 @@ function parseTableBlock(lines: string[], start: number): { node: TableNode; nex
   }
 }
 
+/** LaTeX heading depth when the document uses `\\chapter` (report/book): chapter=1, section=2, … */
+function headingLevelFor(
+  kind: 'part' | 'chapter' | 'section' | 'subsection' | 'subsubsection',
+  chapterMode: boolean
+): 1 | 2 | 3 | 4 | 5 | 6 {
+  if (chapterMode) {
+    if (kind === 'part' || kind === 'chapter') return 1
+    if (kind === 'section') return 2
+    if (kind === 'subsection') return 3
+    return 4
+  }
+  if (kind === 'part' || kind === 'chapter') return 1
+  if (kind === 'section') return 1
+  if (kind === 'subsection') return 2
+  return 3
+}
+
 /** Parse line-based block structure */
 function parseBlocks(source: string): BlockNode[] {
   const blocks: BlockNode[] = []
   const lines = source.split('\n')
+  const chapterMode = /\\chapter\b/.test(source)
   let i = 0
 
   while (i < lines.length) {
@@ -233,13 +251,20 @@ function parseBlocks(source: string): BlockNode[] {
       continue
     }
 
-    // \section{...}, \subsection{...}, \subsubsection{...}
-    const headingMatch = trimmed.match(/^\\(section|subsection|subsubsection)\*?(\s*)\{/)
+    // \part, \chapter, \section, \subsection, \subsubsection
+    const headingMatch = trimmed.match(
+      /^\\(part|chapter|section|subsection|subsubsection)\*?(\s*)\{/
+    )
     if (headingMatch) {
       const braced = extractBraced(trimmed, trimmed.indexOf('{'))
       if (braced) {
-        const level: 1 | 2 | 3 =
-          headingMatch[1] === 'section' ? 1 : headingMatch[1] === 'subsection' ? 2 : 3
+        const kind = headingMatch[1] as
+          | 'part'
+          | 'chapter'
+          | 'section'
+          | 'subsection'
+          | 'subsubsection'
+        const level = headingLevelFor(kind, chapterMode)
         const children = parseInlineLatex(braced.content)
         blocks.push({ type: 'heading', level, children })
       } else {
@@ -393,11 +418,11 @@ function parseBlocks(source: string): BlockNode[] {
       continue
     }
 
-    // \begin{table}...\end{table} → extract tabular and emit TableNode
+    // \begin{table}...\end{table} → optional caption + TableNode
     if (trimmed.match(/^\\begin\{table\}/)) {
       const tableResult = parseTableEnv(lines, i)
       if (tableResult) {
-        blocks.push(tableResult.node)
+        blocks.push(...tableResult.blocks)
         i = tableResult.nextIndex
         continue
       }
@@ -700,6 +725,8 @@ function parseTheBibliographyEnv(lines: string[], start: number): { blocks: Bloc
     if (trimmed.startsWith(endTag)) {
       if (currentKey !== null && currentItem.length > 0) {
         flushItem(currentKey, currentItem.join(' '))
+        currentKey = null
+        currentItem = []
       }
       i++
       break
@@ -817,6 +844,11 @@ function parseFigureEnv(
       type: 'paragraph',
       children: [{ type: 'image', url: imageUrl, alt: caption ?? undefined }]
     })
+  } else if (caption) {
+    blocks.push({
+      type: 'paragraph',
+      children: [{ type: 'emphasis', children: [{ type: 'text', value: caption }] }]
+    })
   }
   return { blocks, nextIndex: i }
 }
@@ -879,8 +911,21 @@ function parseLongTableEnv(
   }
 }
 
+/** First `\\caption{...}` in a table environment (outside cells), plain text. */
+function extractFirstCaptionFromTableBlock(rawBlock: string): string | null {
+  const idx = rawBlock.search(/\\caption\s*\{/)
+  if (idx === -1) return null
+  const open = rawBlock.indexOf('{', idx)
+  const braced = extractBraced(rawBlock, open)
+  if (!braced) return null
+  return stripLatexForPlainText(braced.content) || null
+}
+
 /** Parse \begin{table}...\end{table}: find \begin{tabular}...\end{tabular}, parse rows (split by \\ and &), emit TableNode. */
-function parseTableEnv(lines: string[], start: number): { node: TableNode; nextIndex: number } | null {
+function parseTableEnv(
+  lines: string[],
+  start: number
+): { blocks: BlockNode[]; nextIndex: number } | null {
   const endTag = '\\end{table}'
   const blockLines: string[] = []
   let j = start
@@ -915,10 +960,18 @@ function parseTableEnv(lines: string[], start: number): { node: TableNode; nextI
       rows.push(cells)
     }
   }
-  return {
-    node: { type: 'table', headerRow: headerRow.length ? headerRow : [''], rows },
-    nextIndex: j + 1
+  const captionText = extractFirstCaptionFromTableBlock(rawBlock)
+  const tableNode: TableNode = {
+    type: 'table',
+    headerRow: headerRow.length ? headerRow : [''],
+    rows
   }
+  const blocks: BlockNode[] = []
+  if (captionText) {
+    blocks.push({ type: 'paragraph', children: [{ type: 'text', value: captionText }] })
+  }
+  blocks.push(tableNode)
+  return { blocks, nextIndex: j + 1 }
 }
 
 /** Parse standalone \begin{tabular}...\end{tabular} (no table wrapper): parse rows, emit TableNode. */
@@ -1258,6 +1311,13 @@ function parseInlineLatex(line: string): InlineNode[] {
       }
     }
 
+    // LaTeX tie (~) → space (before plain-text sweep so "~\\ref" does not become literal "~")
+    if (line[i] === '~') {
+      out.push({ type: 'text', value: ' ' })
+      i++
+      continue
+    }
+
     // \textbf{...} — trim content so "** word **" becomes "**word**"
     if (line.slice(i).startsWith('\\textbf{')) {
       const open = line.indexOf('{', i)
@@ -1403,24 +1463,37 @@ function parseInlineLatex(line: string): InlineNode[] {
       }
     }
 
-    // \ref{...} → placeholder (no cross-ref resolution)
+    // \ref{...} → visible label in brackets (matches \\label{...} key)
     if (line.slice(i).startsWith('\\ref{')) {
       const open = line.indexOf('{', i)
       const braced = extractBraced(line, open)
       if (braced) {
-        out.push({ type: 'text', value: '[ref]' })
+        const label = braced.content.trim()
+        out.push({ type: 'text', value: '[' + label + ']' })
         i = braced.end
         continue
       }
     }
 
-    // \cite{...} → link to #ref-{key} with text [key] (for bibliography jump)
+    // \footnote{...} → inline note (CommonMark has no footnotes in core)
+    if (line.slice(i).startsWith('\\footnote{')) {
+      const open = line.indexOf('{', i)
+      const braced = extractBraced(line, open)
+      if (braced) {
+        const note = stripLatexForPlainText(braced.content)
+        out.push({ type: 'text', value: '（注：' + note + '）' })
+        i = braced.end
+        continue
+      }
+    }
+
+    // \cite{...} → link to #ref-{key} with text key (markdown adds [...] around link text)
     if (line.slice(i).startsWith('\\cite{')) {
       const open = line.indexOf('{', i)
       const braced = extractBraced(line, open)
       if (braced) {
         const key = braced.content.split(',')[0].trim()
-        out.push({ type: 'link', url: '#ref-' + key, children: [{ type: 'text', value: '[' + key + ']' }] })
+        out.push({ type: 'link', url: '#ref-' + key, children: [{ type: 'text', value: key }] })
         i = braced.end
         continue
       }
@@ -1451,8 +1524,10 @@ function parseInlineLatex(line: string): InlineNode[] {
     const nextCloseMath = rest.indexOf('\\)')
     const nextDollar = rest.indexOf('$')
     const nextDoubleDollar = rest.indexOf('$$')
+    const nextTilde = rest.indexOf('~')
     let end = line.length
     if (nextLetter !== -1) end = Math.min(end, i + nextLetter)
+    if (nextTilde !== -1) end = Math.min(end, i + nextTilde)
     if (nextOpenMath !== -1) end = Math.min(end, i + nextOpenMath)
     if (nextCloseMath !== -1) end = Math.min(end, i + nextCloseMath)
     if (nextDollar !== -1) end = Math.min(end, i + nextDollar)

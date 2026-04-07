@@ -44,7 +44,7 @@ export const builtInInlineMacroHandlers: Record<string, InlineMacroHandler> = {
     m.arg != null && m.arg2 != null ? `[${m.arg2}](${m.arg})` : m.raw,
   includegraphics: (m) =>
     m.arg != null ? `![${m.optionalArg ?? ''}](${m.arg})` : m.raw,
-  ref: (m) => '[ref]',
+  ref: (m) => (m.arg != null ? `[${m.arg}]` : '[ref]'),
   cite: (m) =>
     m.arg != null ? `[${m.arg}](#ref-${m.arg})` : '[ref]'
 }

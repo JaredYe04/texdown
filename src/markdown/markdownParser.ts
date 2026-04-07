@@ -128,7 +128,7 @@ function parseBlocks(source: string): BlockNode[] {
 
     const headingMatch = trimmed.match(HEADING_PREFIX)
     if (headingMatch && indent === 0) {
-      const level = Math.min(3, headingMatch[1].length) as 1 | 2 | 3
+      const level = Math.min(6, headingMatch[1].length) as 1 | 2 | 3 | 4 | 5 | 6
       const title = trimmed.slice(headingMatch[0].length)
       const children = parseInline(title)
       blocks.push({ type: 'heading', level, children })
