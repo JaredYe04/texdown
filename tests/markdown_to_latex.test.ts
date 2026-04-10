@@ -94,7 +94,9 @@ describe('Markdown → LaTeX', () => {
   })
 
   it('GFM table → tabular', () => {
-    const { markdown, latex } = loadFixture('gfm_table')
+    const markdown = '## T\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n'
+    const latex =
+      '\\subsection{T}\n\n\\begin{tabular}{l l}\n\\hline\nA & B \\\\\n\\hline\n1 & 2 \\\\\n3 & 4 \\\\\n\\hline\n\\end{tabular}'
     expect(markdownToLatex(markdown)).toBe(latex)
   })
 
